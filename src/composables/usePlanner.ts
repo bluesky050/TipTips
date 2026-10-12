@@ -45,6 +45,7 @@ export function usePlanner() {
         items.value = items.value.filter((i) => i.id !== id)
       }
       notifyDataChange()
+      await loadItems()
     } catch (e) {
       console.error('Failed to update item:', e)
     }
@@ -77,7 +78,7 @@ export function usePlanner() {
     try {
       const changed = await invoke<boolean>('check_day_rollover')
       if (changed) {
-        await loadItems()
+        notifyDataChange()
       }
     } catch (e) {
       console.error('Failed to check rollover:', e)

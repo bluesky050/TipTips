@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import type { PlannerItem } from '../types'
+import TaskContent from './TaskContent.vue'
 
 const props = defineProps<{
   item: PlannerItem
@@ -21,6 +22,7 @@ const editText = ref('')
 const editInputRef = ref<HTMLInputElement | null>(null)
 
 function startEdit() {
+  if (props.item.source === 'seu') return
   isEditing.value = true
   editText.value = props.item.text
   nextTick(() => {
@@ -51,15 +53,16 @@ function handleEditKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="planner-item" :class="{ done: item.done, carried: item.carried_over }">
-    <button class="checkbox" @click="emit('toggle', item.id)" :class="{ checked: item.done }">
+  <div class="planner-item" :class="{ done: item.done, carried: item.carried_over, official: item.source === 'seu', 'fair-theme': item.source === 'seu' || item.schedule?.event_type === '宣讲会' }">
+    <span v-if="item.source === 'seu'" class="official-marker">日程</span>
+    <button v-else class="checkbox" @click="emit('toggle', item.id)" :class="{ checked: item.done }">
       <svg v-if="item.done" width="14" height="14" viewBox="0 0 14 14">
         <path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
     </button>
 
     <div class="item-content" v-if="!isEditing" @dblclick="startEdit">
-      <span class="item-text">{{ item.text }}</span>
+      <TaskContent :item="item" />
       <span v-if="item.carried_over" class="carried-badge">延续</span>
     </div>
 
@@ -73,7 +76,7 @@ function handleEditKeydown(e: KeyboardEvent) {
       @keydown="handleEditKeydown"
     />
 
-    <div class="item-actions" v-if="!isEditing">
+    <div class="item-actions" v-if="!isEditing && item.source !== 'seu'">
       <button
         v-if="canMoveUp"
         class="action-btn move"
@@ -110,33 +113,24 @@ function handleEditKeydown(e: KeyboardEvent) {
 
 <style scoped>
 .planner-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  border-radius: 10px;
-  transition: background 0.2s;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: 0 2px 6px rgba(136, 19, 55, 0.04);
+  transition: background 0.2s, border-color 0.2s;
+  flex-shrink: 0;
   width: 100%;
 }
+.official-marker { color: var(--accent); background: var(--accent-glow); padding: 3px 5px; border-radius: 6px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
 
 .planner-item:hover {
-  background: var(--surface-2);
-}
-
-.planner-item:not(.done) {
-  background: rgba(239, 68, 68, 0.08);
-}
-
-.planner-item:not(.done):hover {
-  background: rgba(239, 68, 68, 0.14);
-}
-
-.planner-item.done {
-  background: rgba(34, 197, 94, 0.1);
-}
-
-.planner-item.done:hover {
-  background: rgba(34, 197, 94, 0.16);
+  background: var(--card-hover);
+  border-color: var(--accent);
 }
 
 .checkbox {
@@ -145,7 +139,7 @@ function handleEditKeydown(e: KeyboardEvent) {
   justify-content: center;
   width: 20px;
   height: 20px;
-  border: 2px solid var(--border-strong);
+  border: 2px solid var(--card-muted);
   border-radius: 6px;
   background: transparent;
   cursor: pointer;
@@ -154,15 +148,12 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .checkbox.checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: #15803d;
+  border-color: #15803d;
 }
 
 .item-content {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   min-width: 0;
 }
 
@@ -181,6 +172,8 @@ function handleEditKeydown(e: KeyboardEvent) {
 }
 
 .carried-badge {
+  display: inline-block;
+  margin-top: 6px;
   font-size: 10px;
   color: var(--accent);
   background: var(--accent-glow);
@@ -203,8 +196,10 @@ function handleEditKeydown(e: KeyboardEvent) {
 
 .item-actions {
   display: flex;
+  grid-column: 2;
+  justify-content: flex-end;
   gap: 2px;
-  opacity: 0;
+  opacity: 1;
   transition: opacity 0.2s;
   flex-shrink: 0;
 }

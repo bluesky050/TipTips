@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { PlannerItem } from '../types'
 import { useDataSync } from './useDataSync'
@@ -8,14 +8,19 @@ const currentMonth = ref(new Date().getMonth()) // 0-11
 const monthItems = ref<PlannerItem[]>([])
 const selectedDate = ref<string | null>(null)
 const loading = ref(false)
-const { notifyDataChange } = useDataSync()
+const { dataVersion, notifyDataChange } = useDataSync()
 
 export function useCalendar() {
+  watch(dataVersion, () => {
+    loadMonthData()
+  })
   const monthLabel = computed(() => {
     return `${currentYear.value}年${currentMonth.value + 1}月`
   })
 
   const todayStr = computed(() => {
+    // Recompute the local today marker when a date boundary refreshes both views.
+    void dataVersion.value
     const d = new Date()
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   })
@@ -56,11 +61,12 @@ export function useCalendar() {
 
   // Stats per date: { total, done }
   const statsByDate = computed(() => {
-    const map: Record<string, { total: number; done: number }> = {}
+    const map: Record<string, { total: number; done: number; fairs: number }> = {}
     for (const [date, items] of Object.entries(itemsByDate.value)) {
       map[date] = {
-        total: items.length,
+        total: items.filter(i => i.source !== 'seu').length,
         done: items.filter((i) => i.done).length,
+        fairs: items.filter(i => i.source === 'seu').length,
       }
     }
     return map
@@ -159,6 +165,7 @@ export function useCalendar() {
         monthItems.value = monthItems.value.filter((i) => i.id !== id)
       }
       notifyDataChange()
+      await loadMonthData()
     } catch (e) {
       console.error('Failed to update item:', e)
     }

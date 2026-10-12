@@ -43,3 +43,18 @@ openspec
 
 # OS
 Thumbs.db
+
+# Local desktop binaries and agent state
+/*.exe
+/.hermes/
+/docs/ui-polish-preview.html
+
+# Local credentials and runtime data
+.env
+.env.*
+!.env.example
+/email_config.json
+/email_scan_state.json
+/data.json
+/config.json
+/seu_fairs.json*

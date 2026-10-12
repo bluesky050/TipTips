@@ -45,7 +45,10 @@ pub fn read_config() -> WindowConfig {
         return WindowConfig::default();
     }
     match fs::read_to_string(&path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Ok(content) => {
+            let clean = content.trim_start_matches('\u{feff}');
+            serde_json::from_str(clean).unwrap_or_default()
+        }
         Err(_) => WindowConfig::default(),
     }
 }

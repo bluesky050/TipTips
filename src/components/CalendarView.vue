@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, nextTick } from 'vue'
 import { useCalendar } from '../composables/useCalendar'
+import TaskContent from './TaskContent.vue'
 
 const {
   monthLabel,
@@ -55,6 +56,7 @@ function handleAddKeydown(e: KeyboardEvent) {
 }
 
 function startEdit(id: string, text: string) {
+  if (id.startsWith('seu:')) return
   editingId.value = id
   editText.value = text
   nextTick(() => {
@@ -131,12 +133,14 @@ function formatDateLabel(dateStr: string): string {
                 today: day.date === todayStr,
                 'all-done': day.date && cellStatus(day.date) === 'all-done',
                 'has-undone': day.date && cellStatus(day.date) === 'has-undone',
+                'has-fairs': day.date && !!statsByDate[day.date]?.fairs,
               }"
               @click="day.date && openDateDetail(day.date)"
             >
               <template v-if="day.date">
                 <span class="day-number">{{ day.day }}</span>
-                <template v-if="statsByDate[day.date]">
+                <span v-if="statsByDate[day.date]?.fairs" class="day-fairs">宣讲 {{ statsByDate[day.date].fairs }}</span>
+                <template v-if="statsByDate[day.date]?.total">
                   <span class="day-stats">{{ statsByDate[day.date].done }}/{{ statsByDate[day.date].total }}</span>
                   <div class="day-progress">
                     <div
@@ -187,9 +191,10 @@ function formatDateLabel(dateStr: string): string {
             v-for="item in selectedDateItems"
             :key="item.id"
             class="detail-item"
-            :class="{ done: item.done }"
+            :class="{ done: item.done, 'fair-theme': item.source === 'seu' || item.schedule?.event_type === '宣讲会' }"
           >
-            <button class="item-check" @click="toggleItem(item.id)">
+            <span v-if="item.source === 'seu'" class="official-marker">日程</span>
+            <button v-else class="item-check" @click="toggleItem(item.id)">
               <svg v-if="item.done" width="14" height="14" viewBox="0 0 14 14">
                 <path d="M2 7L5.5 10.5L12 3.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
@@ -203,9 +208,9 @@ function formatDateLabel(dateStr: string): string {
               @blur="confirmEdit"
               @keydown="handleEditKeydown"
             />
-            <span v-else class="item-text" @dblclick="startEdit(item.id, item.text)">{{ item.text }}</span>
+            <TaskContent v-else :item="item" @dblclick="startEdit(item.id, item.text)" />
             <span v-if="item.carried_over" class="item-carried">延续</span>
-            <div class="item-actions">
+            <div v-if="item.source !== 'seu'" class="item-actions">
               <button class="action-btn" @click="startEdit(item.id, item.text)" title="编辑">
                 <svg width="13" height="13" viewBox="0 0 13 13">
                   <path d="M8.5 1.5L11.5 4.5L4 12L1 12L1 9L8.5 1.5Z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
@@ -234,6 +239,8 @@ function formatDateLabel(dateStr: string): string {
 </template>
 
 <style scoped>
+.day-fairs { color: var(--fair-accent); background: var(--fair-bg); border-radius: 4px; width: 100%; font-size: 10px; font-weight: 600; line-height: 1.3; text-align: center; overflow-wrap: anywhere; }
+.official-marker { color: var(--accent); background: var(--accent-glow); padding: 3px 5px; border-radius: 6px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
 .calendar-view {
   display: flex;
   flex-direction: column;
@@ -247,6 +254,8 @@ function formatDateLabel(dateStr: string): string {
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .month-nav {
@@ -310,12 +319,12 @@ function formatDateLabel(dateStr: string): string {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  padding: 4px 2px;
+  padding: 4px 0;
   min-height: 44px;
   border-radius: 8px;
   cursor: pointer;
   transition: background 0.2s, border-color 0.2s;
-  border: 1.5px solid transparent;
+  border: 1px solid transparent;
 }
 
 .day-cell:hover:not(.empty) {
@@ -335,7 +344,18 @@ function formatDateLabel(dateStr: string): string {
 }
 
 .day-cell.has-undone {
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--card-bg);
+  border-color: var(--card-border);
+}
+
+.day-cell.has-fairs:not(.has-undone) {
+  background: var(--fair-bg);
+  border-color: var(--fair-border);
+}
+
+.day-cell.today {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .day-number {
@@ -346,7 +366,7 @@ function formatDateLabel(dateStr: string): string {
 }
 
 .day-stats {
-  font-size: 9px;
+  font-size: 10px;
   color: var(--text-tertiary);
   margin-top: 1px;
 }
@@ -458,7 +478,7 @@ function formatDateLabel(dateStr: string): string {
   border: none;
   border-radius: 10px;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   cursor: pointer;
   transition: opacity 0.2s, transform 0.15s;
   flex-shrink: 0;
@@ -475,6 +495,9 @@ function formatDateLabel(dateStr: string): string {
 
 /* Items list (mirrors PlannerItem style) */
 .detail-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   flex: 1;
   overflow-y: auto;
 }
@@ -489,30 +512,22 @@ function formatDateLabel(dateStr: string): string {
 }
 
 .detail-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  transition: background 0.2s;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  box-shadow: 0 2px 6px rgba(136, 19, 55, 0.04);
+  transition: background 0.2s, border-color 0.2s;
+  flex-shrink: 0;
 }
 
-/* 未完成 — 浅红背景 */
-.detail-item:not(.done) {
-  background: rgba(239, 68, 68, 0.08);
-}
-
-.detail-item:not(.done):hover {
-  background: rgba(239, 68, 68, 0.14);
-}
-
-/* 已完成 — 浅绿背景 */
-.detail-item.done {
-  background: rgba(34, 197, 94, 0.1);
-}
-
-.detail-item.done:hover {
-  background: rgba(34, 197, 94, 0.16);
+.detail-item:hover {
+  background: var(--card-hover);
+  border-color: var(--accent);
 }
 
 .item-check {
@@ -521,7 +536,7 @@ function formatDateLabel(dateStr: string): string {
   justify-content: center;
   width: 20px;
   height: 20px;
-  border: 2px solid var(--border-strong);
+  border: 2px solid var(--card-muted);
   border-radius: 6px;
   background: transparent;
   cursor: pointer;
@@ -530,8 +545,8 @@ function formatDateLabel(dateStr: string): string {
 }
 
 .detail-item.done .item-check {
-  background: #22c55e;
-  border-color: #22c55e;
+  background: #15803d;
+  border-color: #15803d;
 }
 
 .item-edit-input {
@@ -560,6 +575,8 @@ function formatDateLabel(dateStr: string): string {
 }
 
 .item-carried {
+  grid-column: 2;
+  justify-self: start;
   font-size: 10px;
   color: var(--accent);
   background: var(--accent-glow);
@@ -570,8 +587,10 @@ function formatDateLabel(dateStr: string): string {
 
 .item-actions {
   display: flex;
+  grid-column: 2;
+  justify-content: flex-end;
   gap: 4px;
-  opacity: 0;
+  opacity: 1;
   transition: opacity 0.2s;
   flex-shrink: 0;
 }

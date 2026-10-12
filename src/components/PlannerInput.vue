@@ -76,7 +76,7 @@ function handleKeydown(e: KeyboardEvent) {
   border: none;
   border-radius: 10px;
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   cursor: pointer;
   transition: opacity 0.2s, transform 0.15s;
   flex-shrink: 0;
