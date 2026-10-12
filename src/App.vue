@@ -8,14 +8,22 @@ import PlannerItem from './components/PlannerItem.vue'
 import ViewSwitcher from './components/ViewSwitcher.vue'
 import CalendarView from './components/CalendarView.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import EmailSettings from './components/EmailSettings.vue'
+import FairSyncBar from './components/FairSyncBar.vue'
+import { useSeuFairs } from './composables/useSeuFairs'
 import { usePlanner } from './composables/usePlanner'
+import { useEmailScan } from './composables/useEmailScan'
 
 const { items, loading, loadItems, addItem, updateItem, deleteItem, toggleItem, checkRollover, reorderItems } =
   usePlanner()
 
+const { scanStatus, setupListeners, cleanupListeners } = useEmailScan()
+const { loadStatus: loadFairStatus, refresh: refreshFairs, checkDayBoundary: checkFairDayBoundary } = useSeuFairs()
+
 const showResetNotice = ref(false)
 const viewMode = ref<'list' | 'calendar'>('list')
 const showSettings = ref(false)
+const showEmailSettings = ref(false)
 const opacity = ref(0.45)
 
 // Apply opacity to CSS variables dynamically
@@ -46,7 +54,7 @@ const sortedItems = computed(() => {
 const hasItems = computed(() => items.value.length > 0)
 
 // For move up/down buttons: compute position within undone group
-const undoneItems = computed(() => sortedItems.value.filter(it => !it.done))
+const undoneItems = computed(() => sortedItems.value.filter(it => !it.done && it.source !== 'seu'))
 const undoneCount = computed(() => undoneItems.value.length)
 
 function getUndoneIndex(id: string): number {
@@ -55,7 +63,7 @@ function getUndoneIndex(id: string): number {
 
 // Move item up/down to adjust priority
 function moveItemUp(id: string) {
-  const undone = sortedItems.value.filter(it => !it.done)
+  const undone = undoneItems.value
   const idx = undone.findIndex(it => it.id === id)
   if (idx <= 0) return
   const newOrder = [...undone]
@@ -66,7 +74,7 @@ function moveItemUp(id: string) {
 }
 
 function moveItemDown(id: string) {
-  const undone = sortedItems.value.filter(it => !it.done)
+  const undone = undoneItems.value
   const idx = undone.findIndex(it => it.id === id)
   if (idx < 0 || idx >= undone.length - 1) return
   const newOrder = [...undone]
@@ -109,9 +117,17 @@ onMounted(async () => {
   }
 
   await loadItems()
+  await loadFairStatus()
+  void refreshFairs()
+
+  // Setup email scan listeners
+  setupListeners(() => {
+    loadItems()
+  })
 
   rolloverInterval = setInterval(() => {
     checkRollover()
+    checkFairDayBoundary()
   }, 60000)
 
   const win = getCurrentWindow()
@@ -120,6 +136,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  cleanupListeners()
   if (rolloverInterval) clearInterval(rolloverInterval)
   if (saveTimeout) clearTimeout(saveTimeout)
 })
@@ -131,10 +148,20 @@ function switchView(mode: 'list' | 'calendar') {
 
 function toggleSettings() {
   showSettings.value = !showSettings.value
+  if (showSettings.value) showEmailSettings.value = false
 }
 
 function closeSettings() {
   showSettings.value = false
+}
+
+function toggleEmailSettings() {
+  showEmailSettings.value = !showEmailSettings.value
+  if (showEmailSettings.value) showSettings.value = false
+}
+
+function closeEmailSettings() {
+  showEmailSettings.value = false
 }
 
 function updateOpacity(val: number) {
@@ -166,8 +193,14 @@ async function saveWindowConfig() {
 </script>
 
 <template>
-  <div class="app" @click.self="showSettings && closeSettings()">
-    <TitleBar :show-settings="showSettings" @toggle-settings="toggleSettings" />
+  <div class="app" @click.self="(showSettings && closeSettings()) || (showEmailSettings && closeEmailSettings())">
+    <TitleBar
+      :show-settings="showSettings"
+      :show-email-settings="showEmailSettings"
+      :email-scan-status="scanStatus"
+      @toggle-settings="toggleSettings"
+      @toggle-email-settings="toggleEmailSettings"
+    />
 
     <SettingsPanel
       v-if="showSettings"
@@ -176,15 +209,22 @@ async function saveWindowConfig() {
       @close="closeSettings"
     />
 
-    <ViewSwitcher :mode="viewMode" @switch="switchView" />
+    <EmailSettings
+      v-if="showEmailSettings"
+      @close="closeEmailSettings"
+    />
 
-    <Transition name="view-slide" mode="out-in">
-      <!-- List view -->
-      <div v-if="viewMode === 'list'" key="list" class="list-view">
-        <PlannerInput @add="addItem" />
+    <template v-if="!showEmailSettings">
+      <ViewSwitcher :mode="viewMode" @switch="switchView" />
+      <FairSyncBar />
 
-        <TransitionGroup
-          v-if="hasItems"
+      <Transition name="view-slide" mode="out-in">
+        <!-- List view -->
+        <div v-if="viewMode === 'list'" key="list" class="list-view">
+          <PlannerInput @add="addItem" />
+
+          <TransitionGroup
+            v-if="hasItems"
           name="item"
           tag="div"
           class="item-list"
@@ -193,8 +233,8 @@ async function saveWindowConfig() {
             v-for="item in sortedItems"
             :key="item.id"
             :item="item"
-            :can-move-up="!item.done && undoneCount > 1 && getUndoneIndex(item.id) > 0"
-            :can-move-down="!item.done && undoneCount > 1 && getUndoneIndex(item.id) < undoneCount - 1"
+            :can-move-up="item.source !== 'seu' && !item.done && undoneCount > 1 && getUndoneIndex(item.id) > 0"
+            :can-move-down="item.source !== 'seu' && !item.done && undoneCount > 1 && getUndoneIndex(item.id) < undoneCount - 1"
             @toggle="toggleItem"
             @update="updateItem"
             @delete="deleteItem"
@@ -216,6 +256,7 @@ async function saveWindowConfig() {
       <!-- Calendar view -->
       <CalendarView v-else key="calendar" />
     </Transition>
+    </template>
 
     <Transition name="fade">
       <div v-if="showResetNotice" class="reset-notice" @click="showResetNotice = false">
@@ -231,12 +272,27 @@ async function saveWindowConfig() {
   --surface: rgba(255, 255, 255, 0.25);
   --surface-2: rgba(255, 255, 255, 0.4);
   --text-primary: #1a1a2e;
-  --text-secondary: #6c7293;
-  --text-tertiary: #a0a4b8;
+  --text-secondary: #545b70;
+  --text-tertiary: #72788b;
   --border: rgba(0, 0, 0, 0.06);
   --border-strong: #c8ccd8;
-  --accent: #6366f1;
-  --accent-glow: rgba(99, 102, 241, 0.15);
+  --accent: #be123c;
+  --on-accent: #ffffff;
+  --accent-glow: rgba(190, 18, 60, 0.12);
+  --card-bg: #fff1f2;
+  --card-hover: #ffe4e6;
+  --card-border: #fda4af;
+  --card-ink: #321c26;
+  --card-muted: #76525d;
+  --card-quiet: #785b67;
+  --fair-bg: #fffbeb;
+  --fair-hover: #fef3c7;
+  --fair-border: #fcd34d;
+  --fair-ink: #422006;
+  --fair-muted: #785123;
+  --fair-quiet: #795a32;
+  --fair-accent: #92400e;
+  --fair-glow: rgba(146, 64, 14, 0.12);
   --danger: #ef4444;
   --danger-bg: rgba(239, 68, 68, 0.1);
   --radius: 12px;
@@ -252,9 +308,31 @@ html,
 body {
   height: 100%;
   overflow: hidden;
-  font-family: 'Segoe UI', 'Microsoft YaHei UI', sans-serif;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'PingFang SC', sans-serif;
   font-size: 14px;
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+}
+
+button, input, textarea, select {
+  font-family: inherit;
+}
+
+.fair-theme {
+  --card-bg: var(--fair-bg);
+  --card-hover: var(--fair-hover);
+  --card-border: var(--fair-border);
+  --card-ink: var(--fair-ink);
+  --card-muted: var(--fair-muted);
+  --card-quiet: var(--fair-quiet);
+  --accent: var(--fair-accent);
+  --accent-glow: var(--fair-glow);
+}
+
+button:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 #app {
@@ -281,9 +359,12 @@ body {
 }
 
 .item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   flex: 1;
   overflow-y: auto;
-  padding: 4px 0;
+  padding: 8px 12px;
 }
 
 .item-list::-webkit-scrollbar {
@@ -390,9 +471,26 @@ body {
     --surface-2: rgba(255, 255, 255, 0.06);
     --text-primary: #e4e4e7;
     --text-secondary: #a1a1aa;
-    --text-tertiary: #71717a;
+    --text-tertiary: #a1a1aa;
     --border: rgba(255, 255, 255, 0.08);
     --border-strong: #3f3f46;
+    --accent: #fda4af;
+    --on-accent: #3b1d26;
+    --accent-glow: rgba(253, 164, 175, 0.12);
+    --card-bg: #3b1d26;
+    --card-hover: #4a2531;
+    --card-border: #7c364c;
+    --card-ink: #fff1f2;
+    --card-muted: #e5bbc7;
+    --card-quiet: #caa0ad;
+    --fair-bg: #332914;
+    --fair-hover: #44361b;
+    --fair-border: #806222;
+    --fair-ink: #fef3c7;
+    --fair-muted: #e8cf92;
+    --fair-quiet: #d4bb86;
+    --fair-accent: #fcd34d;
+    --fair-glow: rgba(252, 211, 77, 0.12);
   }
 }
 </style>

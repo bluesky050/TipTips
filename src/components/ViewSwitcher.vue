@@ -64,6 +64,6 @@ const emit = defineEmits<{
 .switch-btn.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 </style>

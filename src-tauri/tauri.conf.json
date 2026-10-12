@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "TipTips",
         "width": 360,
         "height": 500,
@@ -22,6 +23,7 @@
         "minWidth": 280,
         "minHeight": 300,
         "shadow": true,
+        "visible": true,
         "url": "index.html"
       }
     ],

@@ -12,6 +12,18 @@ pub struct PlannerItem {
     pub carried_over: bool,
     #[serde(default)]
     pub sort_order: i64,
+    /// "manual" or "email" — where this item was created from
+    #[serde(default = "default_source")]
+    pub source: String,
+    /// UID of the email that created this item (for deduplication)
+    #[serde(default)]
+    pub email_uid: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<crate::task::Schedule>,
+}
+
+fn default_source() -> String {
+    "manual".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,15 +64,18 @@ pub fn read_data() -> (PlannerData, bool) {
         return (PlannerData::default(), false);
     }
     match fs::read_to_string(&path) {
-        Ok(content) => match serde_json::from_str::<PlannerData>(&content) {
-            Ok(data) => (data, false),
-            Err(_) => {
-                // Corrupt file - back it up
-                let backup_path = path.with_extension("json.corrupt");
-                let _ = fs::rename(&path, &backup_path);
-                (PlannerData::default(), true)
+        Ok(content) => {
+            let clean = content.trim_start_matches('\u{feff}');
+            match serde_json::from_str::<PlannerData>(clean) {
+                Ok(data) => (data, false),
+                Err(_) => {
+                    // Corrupt file - back it up
+                    let backup_path = path.with_extension("json.corrupt");
+                    let _ = fs::rename(&path, &backup_path);
+                    (PlannerData::default(), true)
+                }
             }
-        },
+        }
         Err(_) => {
             // Can't read - try backup
             let backup_path = path.with_extension("json.corrupt");
@@ -76,10 +91,12 @@ pub fn write_data(data: &PlannerData) -> Result<(), String> {
     if !dir.exists() {
         fs::create_dir_all(&dir).map_err(|e| format!("Failed to create data dir: {}", e))?;
     }
-    let json = serde_json::to_string_pretty(data).map_err(|e| format!("Failed to serialize: {}", e))?;
+    let json =
+        serde_json::to_string_pretty(data).map_err(|e| format!("Failed to serialize: {}", e))?;
     let path = data_file_path();
     let mut file = fs::File::create(&path).map_err(|e| format!("Failed to create file: {}", e))?;
-    file.write_all(json.as_bytes()).map_err(|e| format!("Failed to write: {}", e))?;
+    file.write_all(json.as_bytes())
+        .map_err(|e| format!("Failed to write: {}", e))?;
     Ok(())
 }
 
@@ -110,7 +127,8 @@ pub fn perform_rollover(data: &mut PlannerData) -> bool {
     }
 
     // Remove items that are done and from a previous day
-    data.items.retain(|item| !(item.done && item.created_date != today_str));
+    data.items
+        .retain(|item| !(item.done && item.created_date != today_str));
 
     // Mark remaining non-today items as carried over
     for item in &mut data.items {
@@ -126,6 +144,17 @@ pub fn perform_rollover(data: &mut PlannerData) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_json_retains_text_and_completion() {
+        let legacy = r#"{"items":[{"id":"legacy","text":"我自己改过的内容","done":true,"created_date":"2026-10-10","carried_over":false,"source":"email","email_uid":42}],"last_active_date":"2026-10-10"}"#;
+        let data: PlannerData = serde_json::from_str(legacy).unwrap();
+        assert!(data.items[0].schedule.is_none());
+        assert!(data.items[0].done);
+        assert_eq!(data.items[0].text, "我自己改过的内容");
+        let encoded = serde_json::to_string(&data).unwrap();
+        assert!(!encoded.contains("schedule"));
+    }
 
     #[test]
     fn test_planner_data_default() {
@@ -151,6 +180,10 @@ mod tests {
                 done: false,
                 created_date: today(),
                 carried_over: false,
+                sort_order: 0,
+                source: "manual".to_string(),
+                email_uid: None,
+                schedule: None,
             }],
             last_active_date: today(),
         };
@@ -170,13 +203,21 @@ mod tests {
                     done: true,
                     created_date: yesterday.clone(),
                     carried_over: false,
+                    sort_order: 0,
+                    source: "manual".to_string(),
+                    email_uid: None,
+                    schedule: None,
                 },
                 PlannerItem {
                     id: "2".to_string(),
                     text: "undone task".to_string(),
                     done: false,
-                    created_date: yesterday,
+                    created_date: yesterday.clone(),
                     carried_over: false,
+                    sort_order: 1,
+                    source: "manual".to_string(),
+                    email_uid: None,
+                    schedule: None,
                 },
             ],
             last_active_date: yesterday,
