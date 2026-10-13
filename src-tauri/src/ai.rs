@@ -106,7 +106,7 @@ pub fn analyze_email(
         .post(&url)
         .json(&request_body)
         .send()
-        .map_err(|e| format!("Gemini API request failed: {}", e))?;
+        .map_err(|e| format!("Gemini API request failed: {}", e.without_url()))?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -127,21 +127,9 @@ pub fn analyze_email(
         .and_then(|p| p.get(0))
         .and_then(|p| p.get("text"))
         .and_then(|t| t.as_str())
-        .unwrap_or("[]");
+        .ok_or_else(|| "AI 响应缺少事项内容".to_string())?;
 
-    // Parse the JSON array from the AI response safely
-    let items: Vec<ExtractedItem> = serde_json::from_str(text).unwrap_or_else(|_| {
-        if let (Some(start), Some(end)) = (text.find('['), text.rfind(']')) {
-            if start < end && text.is_char_boundary(start) && text.is_char_boundary(end + 1) {
-                let json_str = &text[start..=end];
-                serde_json::from_str(json_str).unwrap_or_default()
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        }
-    });
+    let items = parse_ai_items(text)?;
 
     // Dates are validated by shared normalization; missing dates are actionable too.
     let valid_items: Vec<ExtractedItem> = items
@@ -150,4 +138,34 @@ pub fn analyze_email(
         .collect();
 
     Ok(valid_items)
+}
+
+fn parse_ai_items(text: &str) -> Result<Vec<ExtractedItem>, String> {
+    if let Ok(items) = serde_json::from_str::<Vec<ExtractedItem>>(text) {
+        return Ok(items);
+    }
+    if let (Some(start), Some(end)) = (text.find('['), text.rfind(']')) {
+        if start < end {
+            return serde_json::from_str(&text[start..=end])
+                .map_err(|_| "AI 返回的事项格式无效".into());
+        }
+    }
+    Err("AI 返回的事项格式无效".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn malformed_ai_output_is_not_a_successful_empty_analysis() {
+        assert!(parse_ai_items("not JSON").is_err());
+        assert!(parse_ai_items("[{broken}]").is_err());
+        assert!(parse_ai_items("[]").unwrap().is_empty());
+        assert_eq!(
+            parse_ai_items("```json\n[{\"type\":\"测评\"}]\n```")
+                .unwrap()
+                .len(),
+            1
+        );
+    }
 }

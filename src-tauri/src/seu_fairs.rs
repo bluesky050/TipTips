@@ -199,9 +199,27 @@ pub fn is_today_item(item: &PlannerItem, personal_day: &str, official_day: &str)
     if item.source == "seu" {
         return item.created_date == official_day;
     }
+    if item.source == "email" && item.schedule.as_ref().is_some_and(|s| {
+        crate::task::valid_date(&s.date) && s.date.as_str() > personal_day
+            && (s.time_kind != "deadline" || item.done)
+    }) {
+        return false;
+    }
     item.created_date == personal_day
         || item.carried_over
         || item.schedule.as_ref().is_some_and(|s| s.date.is_empty())
+        || (item.source == "email"
+            && !item.done
+            && item.schedule.as_ref().is_some_and(|s| {
+                (s.time_kind == "deadline"
+                    && crate::task::valid_date(&s.date)
+                    && s.date.as_str() >= personal_day)
+                    || (s.time_kind == "window"
+                        && crate::task::valid_date(&s.date)
+                        && crate::task::valid_date(&s.end_date)
+                        && s.date.as_str() <= personal_day
+                        && personal_day <= s.end_date.as_str())
+            }))
 }
 
 pub fn ensure_mutable(id: &str) -> Result<(), String> {
@@ -523,6 +541,39 @@ mod tests {
         assert!(ensure_mutable("seu:one").is_err());
         assert!(ensure_mutable("personal").is_ok());
         assert!(snapshot_items(previous, "2026-10-13").is_empty());
+    }
+
+    #[test]
+    fn pending_email_deadlines_are_visible_before_due_day() {
+        let mut item = PlannerItem {
+            id: "synthetic".into(),
+            text: "测评".into(),
+            done: false,
+            created_date: "2026-10-18".into(),
+            carried_over: false,
+            sort_order: 0,
+            source: "email".into(),
+            email_uid: Some(1),
+            schedule: Some(Schedule {
+                date: "2026-10-18".into(),
+                time_kind: "deadline".into(),
+                ..Default::default()
+            }),
+        };
+        assert!(is_today_item(&item, "2026-10-13", "2026-10-13"));
+        item.done = true;
+        assert!(!is_today_item(&item, "2026-10-13", "2026-10-13"));
+        item.done = false;
+        item.schedule.as_mut().unwrap().time_kind = "start".into();
+        assert!(!is_today_item(&item, "2026-10-13", "2026-10-13"));
+        item.carried_over = true;
+        assert!(!is_today_item(&item, "2026-10-13", "2026-10-13"));
+        item.carried_over = false;
+        item.schedule.as_mut().unwrap().time_kind = "window".into();
+        item.schedule.as_mut().unwrap().date = "2026-10-14".into();
+        item.schedule.as_mut().unwrap().end_date = "2026-10-18".into();
+        assert!(!is_today_item(&item, "2026-10-13", "2026-10-13"));
+        assert!(is_today_item(&item, "2026-10-15", "2026-10-15"));
     }
 
     #[test]

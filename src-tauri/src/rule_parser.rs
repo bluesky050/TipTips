@@ -255,9 +255,11 @@ fn detect_event_type(subject: &str, body: &str) -> Option<String> {
 }
 
 /// Extract company name from subject or sender
-fn extract_company(subject: &str, body: &str, from: &str) -> String {
+pub(crate) fn extract_company(subject: &str, body: &str, from: &str) -> String {
     // 1. Check known high-frequency campus recruitment companies
     let known = [
+        "华润电力",
+        "九方智投",
         "长鑫科技",
         "长鑫存储",
         "长鑫",
@@ -304,9 +306,11 @@ fn extract_company(subject: &str, body: &str, from: &str) -> String {
         "远景能源",
         "思源电气",
     ];
-    for comp in &known {
-        if subject.contains(comp) || body.contains(comp) {
-            return comp.to_string();
+    for text in [subject, body] {
+        for comp in &known {
+            if text.contains(comp) {
+                return comp.to_string();
+            }
         }
     }
 
@@ -413,6 +417,12 @@ fn extract_details(body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn company_in_subject_is_recognized_before_platform_in_body() {
+        for company in ["华润电力", "九方智投"] {
+            assert_eq!(super::extract_company(&format!("{company}测评通知"), "请准备腾讯会议", "hr@example.com"), company);
+        }
+    }
     use super::*;
 
     fn sample(body: &str) -> ParsedEmail {

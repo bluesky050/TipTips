@@ -138,7 +138,7 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const { config, loadConfig, saveConfig, testConnection, scanNow, scanStatus, setEnabled, resetHistory, scanResult } = useEmailScan()
+const { config, loadConfig, saveConfig, testConnection, scanNow, scanStatus, lastMessage, setEnabled, resetHistory, scanResult } = useEmailScan()
 
 const form = ref({
   enabled: false,
@@ -175,12 +175,12 @@ onMounted(async () => {
 })
 
 // Watch global scan status to update local messages if a background scan finishes
-watch(scanStatus, (newStatus) => {
-  if (newStatus === 'scanning') {
-    statusType.value = 'info'
-    statusMessage.value = '正在扫描邮件...'
+watch([scanStatus, lastMessage], ([newStatus, message]) => {
+  if (newStatus !== 'idle' && message) {
+    statusType.value = newStatus === 'scanning' ? 'info' : newStatus
+    statusMessage.value = message
   }
-})
+}, { immediate: true })
 
 const onEnabledChange = async () => {
   if (form.value.enabled !== config.value.enabled) {
