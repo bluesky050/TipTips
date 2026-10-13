@@ -106,6 +106,7 @@ test('official list card is read-only while personal tasks retain actions', asyn
 test('calendar counts official talks separately from personal completion', async () => {
   const fixtures = [
     { ...item, id: 'seu:one', source: 'seu' },
+    { ...item, id: 'undated-mail', created_date: '2026-10-13', schedule: { ...schedule, date: '', time: '', time_kind: 'unknown', needs_confirmation: true } },
     { ...item, id: 'personal', source: 'manual', done: true },
     { ...item, id: 'seu:only', source: 'seu', created_date: '2026-10-16' },
   ]
@@ -119,6 +120,10 @@ test('calendar counts official talks separately from personal completion', async
   await calendar.loadMonthData()
   assert.deepEqual(calendar.statsByDate.value['2026-10-15'], { total: 1, done: 1, fairs: 1 })
   assert.deepEqual(calendar.statsByDate.value['2026-10-16'], { total: 0, done: 0, fairs: 1 })
+  assert.deepEqual(calendar.statsByDate.value['2026-10-13'], { total: 1, done: 0, fairs: 0 })
+  calendar.selectDate('2026-10-13')
+  assert.equal(calendar.selectedDateItems.value[0].id, 'undated-mail')
+  assert.ok((await render(calendar.selectedDateItems.value[0])).includes('时间待确认'))
   const { default: CalendarView } = await import(await componentModule('../src/components/CalendarView.vue', { '../composables/useCalendar': calendarModule, './TaskContent.vue': taskContentModule }))
   const html = await renderToString(createSSRApp(CalendarView))
   assert.ok(html.includes('宣讲 1'))

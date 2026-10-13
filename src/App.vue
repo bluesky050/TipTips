@@ -330,6 +330,18 @@ button, input, textarea, select {
   --accent-glow: var(--fair-glow);
 }
 
+.planner-item.done,
+.detail-item.done {
+  --card-bg: #ecfdf3;
+  --card-hover: #dcfce7;
+  --card-border: #86efac;
+  --card-ink: #14532d;
+  --card-muted: #4d7c60;
+  --card-quiet: #4d7c60;
+  --accent: #15803d;
+  --accent-glow: rgba(21, 128, 61, 0.1);
+}
+
 button:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
