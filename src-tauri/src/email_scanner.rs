@@ -259,6 +259,11 @@ pub fn display_items(items: &[PlannerItem]) -> Vec<PlannerItem> {
             let mut visible = item.clone();
             if visible.source == "email" {
                 if let Some(schedule) = &mut visible.schedule {
+                    if schedule.date.is_empty() {
+                        if let Ok(received) = chrono::DateTime::parse_from_rfc2822(&schedule.source_date) {
+                            visible.created_date = received.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap()).format("%Y-%m-%d").to_string();
+                        }
+                    }
                     if schedule.company.is_empty() {
                         let company = rule_parser::extract_company(&schedule.source_subject, "", "");
                         if !company.is_empty() {
@@ -288,7 +293,7 @@ pub fn display_items(items: &[PlannerItem]) -> Vec<PlannerItem> {
                             } else if let Ok(received) =
                                 chrono::DateTime::parse_from_rfc2822(&schedule.source_date)
                             {
-                                visible.created_date = received.format("%Y-%m-%d").to_string();
+                                visible.created_date = received.with_timezone(&chrono::FixedOffset::east_opt(8 * 3600).unwrap()).format("%Y-%m-%d").to_string();
                             }
                         }
                     }
@@ -598,6 +603,31 @@ pub(crate) fn is_candidate_email(subject: &str, body: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn undated_notice_uses_received_day_for_display_not_scan_day() {
+        let mut mail = synthetic_mail("测评时间待确认");
+        mail.date = "Mon, 12 Oct 2026 10:00:00 +0800".into();
+        let mut item = build_planner_item(&ExtractedItem { r#type: "测评".into(), ..Default::default() }, &mail, &[]).unwrap();
+        item.created_date = "2026-10-13".into();
+        let shown = display_items(&[item.clone()]);
+        assert_eq!(shown[0].created_date, "2026-10-12");
+        assert!(shown[0].schedule.as_ref().unwrap().date.is_empty());
+        assert_eq!(item.created_date, "2026-10-13");
+    }
+
+    #[test]
+    fn cleared_false_date_uses_same_beijing_received_day_as_undated_mail() {
+        let mut mail = synthetic_mail("测评时间约30分钟，请参照图1-1完成操作");
+        mail.date = "Mon, 12 Oct 2026 20:00:00 +0000".into();
+        let mut item = build_planner_item(&ExtractedItem { r#type: "测评".into(), ..Default::default() }, &mail, &[]).unwrap();
+        let schedule = item.schedule.as_mut().unwrap();
+        schedule.date = "2026-01-01".into();
+        schedule.time_evidence = mail.body.clone();
+        item.created_date = "2026-01-01".into();
+        let shown = display_items(&[item]);
+        assert_eq!(shown[0].created_date, "2026-10-13");
+        assert!(shown[0].schedule.as_ref().unwrap().date.is_empty());
+    }
     #[test]
     fn unknown_company_records_gain_subject_name_without_overwriting_user_titles() {
         for company in ["华润电力", "九方智投"] {

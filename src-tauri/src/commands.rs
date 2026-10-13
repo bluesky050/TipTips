@@ -178,11 +178,7 @@ pub fn get_items_by_date_range(
     data::perform_rollover(&mut data);
     let filtered: Vec<PlannerItem> = view_items(&data.items)
         .into_iter()
-        .filter(|item| {
-            item.created_date >= start_date
-                && item.created_date <= end_date
-                && !item.schedule.as_ref().is_some_and(|s| s.date.is_empty())
-        })
+        .filter(|item| in_date_range(item, &start_date, &end_date))
         .collect();
     Ok(filtered)
 }
@@ -293,4 +289,27 @@ pub fn minimize_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window
         .minimize()
         .map_err(|e| format!("Failed to minimize: {}", e))
+}
+
+fn in_date_range(item: &PlannerItem, start_date: &str, end_date: &str) -> bool {
+    item.created_date.as_str() >= start_date
+        && item.created_date.as_str() <= end_date
+}
+
+#[cfg(test)]
+mod calendar_tests {
+    use super::*;
+    #[test]
+    fn undated_email_notice_is_visible_in_its_received_day_bucket() {
+        let item = PlannerItem {
+            id: "synthetic".into(), text: "[测评] 示例公司".into(), done: false,
+            created_date: "2026-10-13".into(), carried_over: false, sort_order: 0,
+            source: "email".into(), email_uid: Some(1),
+            schedule: Some(crate::task::Schedule { event_type: "测评".into(), needs_confirmation: true, ..Default::default() }),
+        };
+        assert!(in_date_range(&item, "2026-10-01", "2026-10-31"));
+        assert!(in_date_range(&item, "2026-10-13", "2026-10-13"));
+        assert!(!in_date_range(&item, "2026-10-14", "2026-10-14"));
+        assert!(item.schedule.as_ref().unwrap().date.is_empty());
+    }
 }
