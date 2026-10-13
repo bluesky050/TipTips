@@ -86,6 +86,16 @@ fn dates_in_line(line: &str, base: Option<NaiveDateTime>) -> Vec<String> {
             let after = &line[matched.end()..];
             if before.chars().last().is_some_and(|ch| ch.is_ascii_digit())
                 || after.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+                || before
+                    .chars()
+                    .last()
+                    .is_some_and(|ch| ch.is_ascii_alphabetic() || ch == '.')
+                || Regex::new(r"(?:图|表|第|版本|章节)\s*$")
+                    .unwrap()
+                    .is_match(before)
+                || Regex::new(r"^(?:\.\d|节|章|题|步)")
+                    .unwrap()
+                    .is_match(after)
                 || Regex::new(r"^\s*(?:个?工作日|个?小时|分钟|天|个?月|年)")
                     .unwrap()
                     .is_match(after)
@@ -567,6 +577,31 @@ mod tests {
         let b = normalize(&ai, &email);
         assert_eq!(a, b);
         assert_eq!(title(&a, "ignored"), "[面试] 中兴通讯 · 后端开发 · 二面");
+    }
+
+    #[test]
+    fn instruction_numbers_are_not_dates() {
+        for text in [
+            "测评时间约30分钟，请参照图1-1完成操作",
+            "安装指南见第1-1节",
+            "浏览器版本1.1.0",
+        ] {
+            assert!(
+                extract_timing(text, "Tue, 13 Oct 2026 10:00:00 +0800", "测评")
+                    .date
+                    .is_empty(),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            extract_timing(
+                "测评截止时间：10-18",
+                "Tue, 13 Oct 2026 10:00:00 +0800",
+                "测评"
+            )
+            .date,
+            "2026-10-18"
+        );
     }
 
     #[test]

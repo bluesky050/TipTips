@@ -8,22 +8,22 @@ export type ScanStatus = 'idle' | 'scanning' | 'success' | 'error'
 
 const { notifyDataChange } = useDataSync()
 
+const config = ref<EmailConfig>({
+  enabled: false,
+  email_address: '',
+  has_auth_code: false,
+  has_gemini_api_key: false,
+  scan_interval_minutes: 60,
+  last_scan_time: '',
+  processed_count: 0,
+  gemini_model: 'gemini-3.8-flash'
+})
+
+const scanStatus = ref<ScanStatus>('idle')
+const lastMessage = ref('')
+const scanResult = ref<ScanResult | null>(null)
+
 export function useEmailScan() {
-  const config = ref<EmailConfig>({
-    enabled: false,
-    email_address: '',
-    has_auth_code: false,
-    has_gemini_api_key: false,
-    scan_interval_minutes: 60,
-    last_scan_time: '',
-    processed_count: 0,
-    gemini_model: 'gemini-3.8-flash'
-  })
-
-  const scanStatus = ref<ScanStatus>('idle')
-  const lastMessage = ref('')
-  const scanResult = ref<ScanResult | null>(null)
-
   const loadConfig = async () => {
     try {
       config.value = await invoke<EmailConfig>('get_email_config')
@@ -78,13 +78,10 @@ export function useEmailScan() {
     try {
       const result = await invoke<ScanResult>('scan_emails_now')
       scanResult.value = result
+      if (result.items_created > 0) notifyDataChange()
       if (result.success) {
         scanStatus.value = 'success'
         lastMessage.value = `扫描完成。扫描了 ${result.emails_scanned} 封邮件，创建了 ${result.items_created} 个待办事项。`
-
-        if (result.items_created > 0) {
-          notifyDataChange()
-        }
 
         // Reset success status after a delay
         setTimeout(() => {
@@ -94,7 +91,7 @@ export function useEmailScan() {
         }, 5000)
       } else {
         scanStatus.value = 'error'
-        lastMessage.value = `扫描失败: ${result.errors.join(', ')}`
+        lastMessage.value = `扫描未全部完成，已创建 ${result.items_created} 条待办: ${result.errors.join(', ')}`
       }
 
       await loadConfig() // Update stats
@@ -135,16 +132,14 @@ export function useEmailScan() {
   const setupListeners = async (onNewItems: () => void) => {
     unlistenComplete = await listen<ScanResult>('email-scan-complete', (event) => {
       scanResult.value = event.payload
+      if (event.payload.items_created > 0) {
+        notifyDataChange()
+        onNewItems()
+      }
+      loadConfig()
       if (event.payload.success) {
         scanStatus.value = 'success'
         lastMessage.value = `后台扫描完成。创建了 ${event.payload.items_created} 个待办事项。`
-
-        if (event.payload.items_created > 0) {
-          notifyDataChange()
-          onNewItems()
-        }
-
-        loadConfig() // Update stats
 
         setTimeout(() => {
           if (scanStatus.value === 'success') {
@@ -153,7 +148,7 @@ export function useEmailScan() {
         }, 5000)
       } else {
         scanStatus.value = 'error'
-        lastMessage.value = `后台扫描失败: ${event.payload.errors.join(', ')}`
+        lastMessage.value = `后台扫描未全部完成，已创建 ${event.payload.items_created} 条待办: ${event.payload.errors.join(', ')}`
       }
     })
 

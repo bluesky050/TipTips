@@ -163,14 +163,7 @@ pub fn run() {
                                     // Notify frontend to refresh data
                                     let _ = app_handle.emit("email-scan-complete", &result);
                                 }
-                                let _ = app_handle.emit("email-scan-status", serde_json::json!({
-                                    "status": "success",
-                                    "message": format!(
-                                        "扫描完成: {} 封邮件, 新增 {} 条日程",
-                                        result.emails_scanned, result.items_created
-                                    ),
-                                    "time": result.scan_time,
-                                }));
+                                let _ = app_handle.emit("email-scan-status", result.status_payload());
                             }
                             Err(e) => {
                                 let _ = app_handle.emit("email-scan-status", serde_json::json!({

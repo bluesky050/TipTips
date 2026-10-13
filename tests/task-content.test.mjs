@@ -43,6 +43,38 @@ const item = { id: 'test', text: '[面试] 示例公司 · 后端开发 · 二�
   created_date: '2026-10-15', carried_over: false, sort_order: 0, source: 'email', schedule }
 const render = (value) => renderToString(createSSRApp(TaskContent, { item: value }))
 
+test('partial scan failure still refreshes created tasks for manual and background scans', async () => {
+  const result = { success: false, emails_scanned: 2, items_created: 1, errors: ['合成解析失败'], created_items: [], scan_time: '2026-10-13 10:00:00' }
+  const invokeStub = `data:text/javascript;base64,${Buffer.from(`export async function invoke(command) { return command === 'scan_emails_now' ? ${JSON.stringify(result)} : {} }`).toString('base64')}`
+  const eventStub = `data:text/javascript;base64,${Buffer.from('export const handlers = {}; export async function listen(name, fn) { handlers[name] = fn; return () => {} }').toString('base64')}`
+  const syncModule = await typescriptModule('../src/composables/useDataSync.ts', {})
+  const { useDataSync } = await import(syncModule)
+  const { dataVersion } = useDataSync()
+  const emailScanModule = await typescriptModule('../src/composables/useEmailScan.ts', { '@tauri-apps/api/core': invokeStub, '@tauri-apps/api/event': eventStub, './useDataSync': syncModule })
+  const { useEmailScan } = await import(emailScanModule)
+  const scan = useEmailScan()
+  const settings = useEmailScan()
+  const before = dataVersion.value
+  await scan.scanNow()
+  assert.equal(dataVersion.value, before + 1)
+  assert.equal(scan.scanStatus.value, 'error')
+  const { default: EmailSettings } = await import(await componentModule('../src/components/EmailSettings.vue', { '../composables/useEmailScan': emailScanModule }))
+  const settingsHtml = await renderToString(createSSRApp(EmailSettings))
+  assert.ok(settingsHtml.includes('合成解析失败'))
+  assert.ok(settingsHtml.includes('本次提取到的事项') === false)
+  assert.equal(settings.scanStatus.value, 'error')
+  assert.deepEqual(settings.scanResult.value, result)
+  assert.equal(settings.lastMessage.value, scan.lastMessage.value)
+  let refreshed = 0
+  await scan.setupListeners(() => refreshed++)
+  const { handlers } = await import(eventStub)
+  handlers['email-scan-complete']({ payload: result })
+  assert.equal(refreshed, 1)
+  assert.equal(dataVersion.value, before + 2)
+  assert.equal(scan.scanStatus.value, 'error')
+  scan.cleanupListeners()
+})
+
 test('long notes and legacy titles are collapsed with complete text available', async () => {
   const notes = '很长的准备说明'.repeat(60)
   const html = await render({ ...item, schedule: { ...schedule, notes } })

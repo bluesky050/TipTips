@@ -11,6 +11,13 @@ pub struct ParsedEmail {
     pub body: String,
 }
 
+fn pending_uids(uids: impl Iterator<Item = u32>, processed_uids: &[u32]) -> Vec<u32> {
+    let mut new_uids: Vec<_> = uids.filter(|uid| !processed_uids.contains(uid)).collect();
+    new_uids.sort_by(|a, b| b.cmp(a));
+    // Fetch in small batches below, but don't let repeated failures hide older mail.
+    new_uids
+}
+
 /// Connect to QQ Mail via IMAP and fetch recent emails
 pub fn fetch_recent_emails(
     email_address: &str,
@@ -49,16 +56,7 @@ pub fn fetch_recent_emails(
         .uid_search(&search_query)
         .map_err(|e| format!("IMAP search failed: {}", e))?;
 
-    // Filter out already-processed UIDs
-    let mut new_uids: Vec<u32> = uids
-        .iter()
-        .filter(|uid| !processed_uids.contains(uid))
-        .copied()
-        .collect();
-
-    // Sort newest first and limit to max 60 emails per scan
-    new_uids.sort_by(|a, b| b.cmp(a));
-    new_uids.truncate(60);
+    let new_uids = pending_uids(uids.iter().copied(), processed_uids);
 
     if new_uids.is_empty() {
         let _ = session.logout();
@@ -253,6 +251,14 @@ pub fn safe_truncate_chars(s: &str, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retrying_newest_mail_does_not_starve_older_pending_mail() {
+        let pending = super::pending_uids((1..=70).into_iter(), &[70]);
+        assert_eq!(pending.len(), 69);
+        assert_eq!(pending[0], 69);
+        assert!(pending.contains(&1));
+    }
+
     use super::*;
 
     #[test]
